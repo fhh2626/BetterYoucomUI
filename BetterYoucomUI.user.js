@@ -1,27 +1,121 @@
 // ==UserScript==
-// @name         You.com UI Enhancer - Optimized Version
+// @name         You.com UI Enhancer - Configurable Version
 // @namespace    http://tampermonkey.net/
-// @version      1.0
-// @description  优化版：隐藏You.com欢迎区域，简化模型选择区，隐藏特定模型选项和侧边栏按钮，准确显示所有模型的上下文长度，降低CPU占用
+// @version      1.3.1
+// @description  可配置版：通过菜单开关隐藏欢迎区域，简化模型选择区，隐藏特定模型选项和侧边栏按钮，显示上下文长度，隐藏不常用模型
 // @author
 // @match        https://you.com/*
-// @grant        none
+// @grant        GM_registerMenuCommand
+// @grant        GM_setValue
+// @grant        GM_getValue
 // @run-at       document-end
 // ==/UserScript==
 
 (function() {
     'use strict';
 
+    // 从存储中读取用户首选项，默认为开启
+    const getStoredOption = (key, defaultValue) => {
+        return typeof GM_getValue === "function"
+            ? GM_getValue(key, defaultValue)
+            : defaultValue;
+    };
+
     // 配置项
     const config = {
         debug: false,               // 调试日志开关
         checkInterval: 2000,        // 定时检测间隔（毫秒），降低频率减少CPU负担
         welcomeText: "What will you tackle today?",  // 欢迎区域的标题文本
-        hiddenModels: ["Smart", "Compute", "Research", "Create"],  // 需要隐藏的模型选项
+        hiddenModels: [],           // 需要隐藏的普通模型选项（不含Agent）
+        // 不常用模型列表
+        uncommonModels: [
+            "o3 Mini",
+            "o1 Mini",
+            "o1 Preview",
+            "GPT-4o mini",
+            "GPT-4 Turbo",
+            "GPT-4",
+            "Claude 3.5 Sonnet",
+            "Claude 3 Opus",
+            "Claude 3 Sonnet",
+            "Claude 3.5 Haiku",
+            "Gemini 1.5 Flash",
+            "Gemini 1.5 Pro",
+            "Grok 2",
+            "Llama 3.2 90B",
+            "Llama 3.1 405B",
+            "Mistral Large 2",
+            "DBRX-Instruct",
+            "Command R+",
+            "Solar 1 Mini",
+            "Dolphin 2.5"
+        ],
+        // 即使启用了hideUncommonModels也不会被隐藏的常用模型
+        commonModels: [
+            "o3 Mini (High Effort)",
+            "o1",
+            "GPT-4o",
+            "GPT-4.5 Preview"
+        ],
+        hiddenAgents: ["Smart", "Compute", "Research", "Create"],  // 需要隐藏的Agent选项
         hiddenSidebarButtons: ["Business", "Download", "More"],  // 需要隐藏的侧边栏按钮
         mutationDebounce: 100,      // MutationObserver回调的去抖时间（毫秒）
-        showContextLengths: true    // 是否显示模型的上下文长度
+
+        // 功能开关（从存储中读取）
+        hideWelcomeMenu: getStoredOption('hideWelcomeMenu', true),
+        hideSidebarBtn: getStoredOption('hideSidebarBtn', true),
+        hideModelButtons: getStoredOption('hideModelButtons', true),
+        hideBuiltinAgent: getStoredOption('hideBuiltinAgent', true),
+        showContextLengths: getStoredOption('showContextLengths', true),
+        hideUncommonModels: getStoredOption('hideUncommonModels', false)  // 默认不隐藏不常用模型
     };
+
+    // 注册菜单命令（如果GM_registerMenuCommand可用）
+    if (typeof GM_registerMenuCommand === "function") {
+        GM_registerMenuCommand("✓ " + (config.hideWelcomeMenu ? "开启" : "关闭") + " | 隐藏欢迎菜单", toggleWelcomeMenu);
+        GM_registerMenuCommand("✓ " + (config.hideSidebarBtn ? "开启" : "关闭") + " | 隐藏侧边栏按钮", toggleSidebarBtn);
+        GM_registerMenuCommand("✓ " + (config.hideModelButtons ? "开启" : "关闭") + " | 隐藏模型选择器多余按钮", toggleModelButtons);
+        GM_registerMenuCommand("✓ " + (config.hideBuiltinAgent ? "开启" : "关闭") + " | 隐藏自带Agent", toggleBuiltinAgent);
+        GM_registerMenuCommand("✓ " + (config.showContextLengths ? "开启" : "关闭") + " | 显示上下文长度", toggleContextLength);
+        GM_registerMenuCommand("✓ " + (config.hideUncommonModels ? "开启" : "关闭") + " | 隐藏不常用模型", toggleUncommonModels);
+    }
+
+    // 菜单切换函数
+    function toggleWelcomeMenu() {
+        config.hideWelcomeMenu = !config.hideWelcomeMenu;
+        if (typeof GM_setValue === "function") GM_setValue('hideWelcomeMenu', config.hideWelcomeMenu);
+        location.reload();
+    }
+
+    function toggleSidebarBtn() {
+        config.hideSidebarBtn = !config.hideSidebarBtn;
+        if (typeof GM_setValue === "function") GM_setValue('hideSidebarBtn', config.hideSidebarBtn);
+        location.reload();
+    }
+
+    function toggleModelButtons() {
+        config.hideModelButtons = !config.hideModelButtons;
+        if (typeof GM_setValue === "function") GM_setValue('hideModelButtons', config.hideModelButtons);
+        location.reload();
+    }
+
+    function toggleBuiltinAgent() {
+        config.hideBuiltinAgent = !config.hideBuiltinAgent;
+        if (typeof GM_setValue === "function") GM_setValue('hideBuiltinAgent', config.hideBuiltinAgent);
+        location.reload();
+    }
+
+    function toggleContextLength() {
+        config.showContextLengths = !config.showContextLengths;
+        if (typeof GM_setValue === "function") GM_setValue('showContextLengths', config.showContextLengths);
+        location.reload();
+    }
+
+    function toggleUncommonModels() {
+        config.hideUncommonModels = !config.hideUncommonModels;
+        if (typeof GM_setValue === "function") GM_setValue('hideUncommonModels', config.hideUncommonModels);
+        location.reload();
+    }
 
     // 统一的模型关键字数组，便于后续维护和扩展
     const MODEL_KEYWORDS = [
@@ -43,6 +137,7 @@
         'Mistral',
         'DBRX',
         'R+',
+        'Command',  // 新增Command关键词以匹配Command R+
         'Solar',
         'Dolphin'
     ];
@@ -52,9 +147,17 @@
         return MODEL_KEYWORDS.some(keyword => text.includes(keyword));
     }
 
+    // 判断文本是否匹配Agent名称 - 修复为包含匹配，而非精确匹配
+    function isAgentButton(text) {
+        return config.hiddenAgents.some(agent =>
+            text === agent || // 精确匹配
+            text.includes(agent) // 包含匹配
+        );
+    }
+
     // 日志函数（仅在debug为true时输出）
     const log = (...args) => {
-        if (config.debug) console.log('[Optimized You.com UI Enhancer]', ...args);
+        if (config.debug) console.log('[Configurable You.com UI Enhancer]', ...args);
     };
 
     // 通用去抖函数
@@ -143,6 +246,11 @@
                         modelMap['o1 Mini'] = { id: model.id, contextLimit: model.contextLimit };
                     }
 
+                    // 处理Command R+
+                    else if (model.id === 'command_r_plus') {
+                        modelMap['Command R+'] = { id: model.id, contextLimit: model.contextLimit };
+                    }
+
                     // 处理Claude模型
                     if (model.name.includes('Claude')) {
                         const simpleClaudeName = model.name.replace(/\s*\([^)]*\)/g, '').trim();
@@ -171,8 +279,12 @@
         return `(${inK}k)`;
     }
 
-    // 获取模型的ID或名称
+    // 获取模型的ID或名称 - 更新了正则表达式以更精确地匹配
     function getModelIdentifier(text) {
+        // 首先处理常见的上下文长度标记
+        // 如果文本已经包含上下文长度格式 "(123k)"，先移除它以便更准确匹配
+        const cleanText = text.replace(/\s*\(\d+k\)\s*$/, '').trim();
+
         // 常见模型名称的正则表达式
         const patterns = [
             // OpenAI新模型
@@ -197,6 +309,10 @@
             { regex: /\bClaude\s+3\s+Sonnet\b/i, id: 'Claude 3 Sonnet' },
             { regex: /\bClaude\s+3\.5\s+Haiku\b/i, id: 'Claude 3.5 Haiku' },
 
+            // Command R+ - 加强匹配
+            { regex: /\bCommand\s*R\+/i, id: 'Command R+' },
+            { regex: /\bCommand\s*R\s*Plus/i, id: 'Command R+' },
+
             // Other models with simple patterns
             { regex: /\bQwQ\s+32B\b/i, id: 'QwQ 32B' },
             { regex: /\bQwen2\.5\s+72B\b/i, id: 'Qwen2.5 72B' },
@@ -208,25 +324,57 @@
             { regex: /\bGemini\s+1\.5\s+Flash\b/i, id: 'Gemini 1.5 Flash' },
             { regex: /\bGemini\s+1\.5\s+Pro\b/i, id: 'Gemini 1.5 Pro' },
             { regex: /\bDBRX-Instruct\b/i, id: 'DBRX-Instruct' },
-            { regex: /\bCommand\s+R\+\b/i, id: 'Command R+' },
-            { regex: /\bDeepSeek-R1\b/i, id: 'DeepSeek-R1' },
-            { regex: /\bDeepSeek-V3\b/i, id: 'DeepSeek-V3' },
             { regex: /\bLlama\s+3\.3\s+70B\b/i, id: 'Llama 3.3 70B' },
             { regex: /\bLlama\s+3\.2\s+90B\b/i, id: 'Llama 3.2 90B' },
             { regex: /\bLlama\s+3\.1\s+405B\b/i, id: 'Llama 3.1 405B' },
             { regex: /\bSolar\s+1\s+Mini\b/i, id: 'Solar 1 Mini' },
-            { regex: /\bDolphin\s+2\.5\b/i, id: 'Dolphin 2.5' }
+            { regex: /\bDolphin\s+2\.5\b/i, id: 'Dolphin 2.5' },
+            { regex: /\bDeepSeek-R1\b/i, id: 'DeepSeek-R1' },
+            { regex: /\bDeepSeek-V3\b/i, id: 'DeepSeek-V3' }
         ];
 
-        // 检查文本是否匹配任何模型模式
+        // 检查清理后的文本是否匹配任何模型模式
         for (const pattern of patterns) {
-            if (pattern.regex.test(text)) {
+            if (pattern.regex.test(cleanText)) {
+                log('识别模型:', cleanText, '→', pattern.id);
                 return pattern.id;
             }
         }
 
-        // 如果没有匹配特定模式，返回null
+        // 如果没有匹配特定模式，记录并返回null
+        log('无法识别模型:', cleanText);
         return null;
+    }
+
+    // 检查模型是否应该被隐藏（根据不常用模型列表）- 改进比较逻辑
+    function shouldHideModel(modelText) {
+        if (!config.hideUncommonModels) return false;
+
+        // 获取规范化的模型标识符
+        const modelId = getModelIdentifier(modelText);
+        if (!modelId) {
+            log('无法确定模型标识符，不隐藏:', modelText);
+            return false;
+        }
+
+        // 首先检查是否为常用模型（应该保留）
+        for (const commonModel of config.commonModels) {
+            if (modelId === commonModel) {
+                log('保留常用模型:', modelId);
+                return false; // 这是常用模型，不应该隐藏
+            }
+        }
+
+        // 然后检查是否为不常用模型（应该隐藏）
+        for (const uncommonModel of config.uncommonModels) {
+            if (modelId === uncommonModel) {
+                log('识别为不常用模型，应隐藏:', modelId);
+                return true;
+            }
+        }
+
+        log('不在不常用模型列表中，不隐藏:', modelId);
+        return false;
     }
 
     // 为下拉菜单中的模型名称添加上下文长度显示
@@ -310,6 +458,8 @@
 
     // 1. 隐藏欢迎区域
     function hideWelcomeArea() {
+        if (!config.hideWelcomeMenu) return false;
+
         const { height } = getWindowDimensions();
         // 查询包含欢迎区域标题的元素
         const welcomeHeading = Array.from(document.querySelectorAll('h1, h2, h3, div'))
@@ -374,6 +524,8 @@
 
     // 3. 处理模型选择区域
     function handleModelArea() {
+        if (!config.hideModelButtons && !config.hideBuiltinAgent) return false;
+
         const { height } = getWindowDimensions();
         const buttons = Array.from(document.querySelectorAll('button'));
 
@@ -383,7 +535,7 @@
             const isAtBottom = rect.top > window.innerHeight * 0.5 && rect.bottom < window.innerHeight * 0.95;
             const isNotInSidebar = !isInSidebar(button);
             const text = button.textContent.trim();
-            // 使用全局统一检测模型关键字，允许“More”或“Model selector”直接判断
+            // 使用全局统一检测模型关键字，允许"More"或"Model selector"直接判断
             const isModelButton = hasModelKeyword(text) || text === 'More' || text === 'Model Selector';
             return isAtBottom && isNotInSidebar && isModelButton;
         });
@@ -408,9 +560,26 @@
             log('将 "More" 按钮重命名为 "Model Selector"');
         }
 
-        // 隐藏除了"Model selector"之外的所有模型按钮
+        // 处理模型按钮
         bottomButtons.forEach(button => {
             if (button !== moreButton) {
+                const buttonText = button.textContent.trim();
+
+                // 检查是否为Agent按钮 - 使用修复后的isAgentButton函数
+                const isAgent = isAgentButton(buttonText);
+
+                // 如果是Agent按钮但不需要隐藏Agent，则跳过
+                if (isAgent && !config.hideBuiltinAgent) {
+                    log('保留Agent按钮:', buttonText);
+                    return;
+                }
+
+                // 如果不是Agent按钮，但不需要隐藏普通模型按钮，则跳过
+                if (!isAgent && !config.hideModelButtons) {
+                    log('保留普通模型按钮:', buttonText);
+                    return;
+                }
+
                 let container = button;
                 let parent = button.parentElement;
                 // 向上查找最多3层，寻找合适的父容器隐藏
@@ -429,7 +598,7 @@
                     }
                 }
                 container.style.display = 'none';
-                log('隐藏模型按钮:', button.textContent.trim());
+                log('隐藏按钮:', buttonText, isAgent ? '(Agent)' : '(模型)');
             }
         });
 
@@ -466,20 +635,49 @@
             // 首先为模型名称添加上下文长度
             addContextLimitsToModelNames(popup, modelMap);
 
-            // 然后隐藏需要隐藏的模型选项
+            // 处理需要隐藏的选项
             const options = Array.from(popup.querySelectorAll('div, button, a, li')).filter(el => {
                 if (!el.textContent) return false;
-                const matchesHiddenModel = config.hiddenModels.some(model =>
-                    el.textContent.trim() === model ||
-                    (el.textContent.includes(model) && !el.textContent.includes('Claude') &&
-                     !el.textContent.includes('GPT') && !el.textContent.includes('Grok'))
-                );
+                const text = el.textContent.trim();
+
                 // 忽略内容结构过于复杂的容器
                 const isTooLarge = el.querySelectorAll('div, button, a, li').length > 5;
-                return matchesHiddenModel && !isTooLarge;
+                if (isTooLarge) return false;
+
+                // 检查是否为Agent选项
+                const isAgent = isAgentButton(text);
+
+                // 如果是Agent选项且需要隐藏Agent
+                if (isAgent && config.hideBuiltinAgent) {
+                    return true;
+                }
+
+                // 使用精确的模型匹配检查
+                const modelId = getModelIdentifier(text);
+
+                // 如果能识别为有效的模型
+                if (modelId) {
+                    // 检查是否为不常用模型且需要隐藏
+                    if (config.hideUncommonModels && shouldHideModel(modelId)) {
+                        log('识别为不常用模型:', modelId);
+                        return true;
+                    }
+
+                    // 检查是否为需要隐藏的普通模型
+                    if (config.hideModelButtons && config.hiddenModels.includes(modelId)) {
+                        return true;
+                    }
+                }
+
+                return false;
             });
 
             options.forEach(option => {
+                const optionText = option.textContent.trim();
+                const modelId = getModelIdentifier(optionText);
+                const isAgent = isAgentButton(optionText);
+                const isUncommonModel = modelId && shouldHideModel(modelId);
+
                 let containerToHide = option;
                 let parent = option.parentElement;
                 // 向上查找3层以内，寻找合适的父容器进行隐藏
@@ -488,8 +686,8 @@
                         parent.getAttribute('role') === 'option' ||
                         parent.getAttribute('role') === 'menuitem' ||
                         (parent.className && (parent.className.includes('item') ||
-                                               parent.className.includes('card') ||
-                                               parent.className.includes('option')))
+                                            parent.className.includes('card') ||
+                                            parent.className.includes('option')))
                     ) {
                         containerToHide = parent;
                         break;
@@ -500,7 +698,7 @@
                             child.textContent.includes('GPT') ||
                             child.textContent.includes('Grok') ||
                             child.textContent.includes('Gemini') ||
-                            config.hiddenModels.some(model => child.textContent.includes(model))
+                            isAgentButton(child.textContent)
                         );
                     });
                     if (siblingOptions.length > 1) break;
@@ -508,13 +706,15 @@
                     parent = parent.parentElement;
                 }
                 containerToHide.style.display = 'none';
-                log('隐藏模型下拉选项:', option.textContent.trim());
+                log('隐藏选项:', optionText, isAgent ? '(Agent)' : isUncommonModel ? '(不常用模型)' : '(模型)');
             });
         });
     }
 
     // 5. 隐藏侧边栏的指定按钮
     function hideSidebarButtons() {
+        if (!config.hideSidebarBtn) return;
+
         // 查找侧边栏区域
         const sidebar = document.querySelector('nav, [aria-label="Sidebar"], #sidebar') ||
                       document.querySelector('div[style*="position: fixed"][style*="left: 0"]');
@@ -527,7 +727,7 @@
         // 在整个文档中查找可能的侧边栏按钮
         const allElements = document.querySelectorAll('a, button, div[role="button"], [class*="sidebar"] a, [class*="sidebar"] button');
 
-        // 筛选出要隐藏的侧边栏按钮
+                // 筛选出要隐藏的侧边栏按钮
         const sidebarButtons = Array.from(allElements).filter(el => {
             if (!el.textContent) return false;
             const buttonText = el.textContent.trim();
@@ -608,7 +808,7 @@
 
     // 初始化
     function init() {
-        log('初始化优化版You.com UI增强脚本');
+        log('初始化可配置版You.com UI增强脚本');
         setTimeout(() => {
             hideWelcomeArea();
             handleModelArea();
