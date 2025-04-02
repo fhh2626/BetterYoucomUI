@@ -37,6 +37,7 @@
         'Research',
         'Genius',
         'Creative',
+        'Compute',
         'Qwen',
         'Llama',
         'Mistral',
